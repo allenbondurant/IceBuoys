@@ -8,8 +8,8 @@ library(scales)
 
 # Backend configuration
 DEFAULT_SITE_ID <- Sys.getenv("DEFAULT_SITE_ID", "dot-lake")
-OBSERVATIONS_URL <- Sys.getenv("OBSERVATIONS_CSV_URL", "")
-CAMERA_MANIFEST_URL <- Sys.getenv("CAMERA_MANIFEST_URL", "")
+OBSERVATIONS_URL <- Sys.getenv("OBSERVATIONS_CSV_URL", "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/licor_observations.csv")
+CAMERA_MANIFEST_URL <- Sys.getenv("CAMERA_MANIFEST_URL", "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/camera_manifest.csv")
 MODEL_SENSOR_SN <- Sys.getenv("MODEL_SENSOR_SN", "22585844-1") # Probe A
 DEFAULT_ALPHA <- as.numeric(Sys.getenv("DEFAULT_ALPHA", "1.50"))
 

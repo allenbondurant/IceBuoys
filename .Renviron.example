@@ -1,0 +1,17 @@
+# Keep real credentials out of this file and out of Git.
+LICOR_API_TOKEN=replace_with_your_private_token
+LICOR_LOGGER_SN=22188604
+LICOR_INITIAL_DAYS=180
+
+# Shiny application settings
+DEFAULT_SITE_ID=dot-lake
+MODEL_START_DATE=2026-09-15
+
+# Use raw GitHub URLs after the repository is created.
+OBSERVATIONS_CSV_URL=
+MEASUREMENTS_CSV_URL=
+CAMERA_MANIFEST_URL=
+
+# Used by scripts/sync_spypoint_folder.py when images are hosted from GitHub.
+CAMERA_RAW_BASE_URL=
+CAMERA_TIMEZONE=America/Anchorage

@@ -1,0 +1,7 @@
+.Renviron
+.Rhistory
+.RData
+.Rproj.user/
+__pycache__/
+*.pyc
+data/*.tmp

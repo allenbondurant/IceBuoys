@@ -1,0 +1,10 @@
+name: IceBuoys
+title:
+username: feoi
+account: feoi
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 18057156
+bundleId: 12651120
+url: https://feoi.shinyapps.io/IceBuoys/
+version: 1

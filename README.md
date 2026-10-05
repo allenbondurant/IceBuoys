@@ -1,18 +1,17 @@
 # IceBuoys
 
-An expandable R Shiny dashboard for student river-ice monitoring. **Dot Lake** is the first site, using LI-COR Cloud observations from Onset R2x100 logger **22188604**, student ice-thickness measurements, a simple Stefan freezing-degree-day model, and SpyPoint imagery.
+An expandable R Shiny dashboard for student river-ice monitoring. **Dot Lake** is the first site, using LI-COR Cloud observations from Onset R2x100 logger **22188604**, an accumulated freezing-degree-day ice calculation, and SpyPoint imagery.
 
-## What the first version does
+## What the dashboard shows
 
 - Downloads LI-COR observations with a private bearer token.
 - Stores tidy, deduplicated observations in `data/licor_observations.csv`.
 - Updates the data automatically through GitHub Actions.
-- Lets students change the ice-growth coefficient α from 0.50 to 3.00.
-- Overlays measured ice thickness on the modeled curve.
-- Reveals a least-squares best-fit α only when requested.
-- Displays all logger channels without assuming the final names of the two unknown temperature sensors.
-- Displays a latest camera image and recent-image gallery from `data/camera_manifest.csv`.
-- Uses a site selector and configuration table so future IceBuoys locations can share one app.
+- Displays calculated ice thickness using a fixed α of 3.5 beside the latest SpyPoint photograph.
+- Calculates a daily mean for each ice-surface sensor and then averages the two sensors equally.
+- Plots all three hourly temperature channels with calculated daily ice thickness on a secondary axis.
+- Starts each displayed ice season on September 1.
+- Keeps sensor mappings and future-site configuration out of the public interface.
 
 ## Model
 
@@ -22,7 +21,7 @@ The first classroom model is:
 h = alpha * sqrt(FDD)
 ```
 
-where `h` is thickness in centimeters and `FDD` is accumulated freezing degree days in °C·days. The temperature channel and accumulation start date are selected in the app.
+where `h` is thickness in centimeters, `alpha` is fixed at 3.5, and `FDD` is accumulated freezing degree days in °C·days. For each day, the app first calculates the daily mean for surface sensors `22585844-1` and `22585845-1`, gives the two sensor means equal weight, and accumulates values below 0 °C beginning September 1.
 
 ## Local setup
 
@@ -38,7 +37,7 @@ If no live observations exist, the app displays clearly labeled demonstration se
 
 Create a repository secret named `LICOR_API_TOKEN`. The included workflow runs every three hours and can also be run manually. It requests only logger `22188604`, merges new observations with the existing CSV, removes duplicates, and commits changes only when the data have changed.
 
-For a deployed Shiny app, set `OBSERVATIONS_CSV_URL` to the raw GitHub URL for `data/licor_observations.csv`. The application checks it every five minutes.
+The application reads `data/licor_observations.csv` directly from the public IceBuoys GitHub repository and checks it every five minutes. `OBSERVATIONS_CSV_URL` can still override that address for testing or a future repository move.
 
 ## Dot Lake sensor inventory
 
@@ -46,13 +45,17 @@ The first authenticated LI-COR download identified these channels:
 
 - `22578302-1`: sensor depth
 - `22578302-2`: differential pressure
-- `22578302-3`: bed temperature from the depth pressure transducer
+- `22578302-3`: bed water temperature from the depth pressure transducer
 - `22578302-4`: barometric pressure
-- `22585844-1`: temperature probe A
-- `22585845-1`: temperature probe B
+- `22585844-1`: ice-surface temperature sensor A
+- `22585845-1`: ice-surface temperature sensor B
 - Battery channels for the depth PT, both temperature loggers, and the station
 
-Chris still needs to confirm which independent temperature probe is at the water surface and which is at the other depth. Until then, the app displays their serial numbers and lets the user choose either probe as the model-driving temperature. The app also discovers future unconfigured channels automatically, so an incomplete configuration does not prevent plotting.
+Both independent temperature sensors are installed at the ice surface. Their equally weighted daily average drives the calculated ice thickness.
+
+## Planned student measurements
+
+Measured ice-thickness points will be added as a separate data layer, most likely read from the Google spreadsheet used to collect student field measurements. These points will be overlaid on the combined graph without changing the existing sensor and camera pipelines.
 
 ## Adding another IceBuoys site
 
@@ -64,17 +67,6 @@ Add one row to `data/sites.csv` with a unique site ID, display name, LI-COR logg
 
 No app code needs to be duplicated for another site.
 
-## Student measurements
-
-Add measurements to `data/ice_measurements.csv`:
-
-```csv
-site_id,date,thickness_cm,team,note
-dot-lake,2026-11-03,12.4,Team A,Near centerline
-```
-
-Students can also upload a CSV with `date` and `thickness_cm` columns during a session. Uploaded files are temporary and do not overwrite the project data.
-
 ## SpyPoint imagery
 
 The existing SpyPoint downloader can remain responsible for retrieving photographs. Run the included synchronization step afterward:
@@ -85,6 +77,4 @@ python scripts/sync_spypoint_folder.py "C:/Users/Allen/Documents/SpypointDownloa
 
 The script retains the newest 60 images by default, resizes them, removes EXIF metadata, converts embedded Alaska-local camera times to UTC, and writes `data/camera_manifest.csv`. When the image files are hosted in GitHub, set `CAMERA_RAW_BASE_URL` before running the script so the manifest contains public raw-image URLs.
 
-## Important next check
-
-The first authenticated LI-COR response will tell us the exact `sensor_sn`, `sensor_measurement_type`, units, and data-type values. Review those fields before treating the model-driving temperature as physically equivalent to air temperature.
+For the Dot Lake Windows computer, `scripts/update_dot_lake_camera.ps1` performs the complete camera update: it synchronizes the newest 12 images from the configured SpyPoint folder, commits the image and manifest changes, integrates any intervening LI-COR data commit, and pushes to GitHub. Add it as a second action in the existing SpyPoint Task Scheduler task so it runs after the downloader finishes.

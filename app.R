@@ -8,10 +8,18 @@ library(scales)
 
 # Backend configuration
 DEFAULT_SITE_ID <- Sys.getenv("DEFAULT_SITE_ID", "dot-lake")
-OBSERVATIONS_URL <- Sys.getenv("OBSERVATIONS_CSV_URL", "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/licor_observations.csv")
-CAMERA_MANIFEST_URL <- Sys.getenv("CAMERA_MANIFEST_URL", "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/camera_manifest.csv")
-MODEL_SENSOR_SN <- Sys.getenv("MODEL_SENSOR_SN", "22585844-1") # Probe A
-DEFAULT_ALPHA <- as.numeric(Sys.getenv("DEFAULT_ALPHA", "1.50"))
+MODEL_ALPHA <- 3.5
+SURFACE_SENSOR_SNS <- c("22585844-1", "22585845-1")
+TEMPERATURE_SENSOR_SNS <- c("22578302-3", SURFACE_SENSOR_SNS)
+
+OBSERVATIONS_URL <- Sys.getenv(
+  "OBSERVATIONS_CSV_URL",
+  "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/licor_observations.csv"
+)
+CAMERA_MANIFEST_URL <- Sys.getenv(
+  "CAMERA_MANIFEST_URL",
+  "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/camera_manifest.csv"
+)
 
 site_config <- suppressMessages(
   readr::read_csv(
@@ -35,6 +43,7 @@ read_csv_source <- function(remote_url, local_path, cache_bust = TRUE) {
       remote_url
     }
   }
+
   suppressMessages(
     readr::read_csv(source, show_col_types = FALSE, na = c("", "NA", "null"))
   )
@@ -72,12 +81,14 @@ read_observations <- function() {
     read_csv_source(OBSERVATIONS_URL, "data/licor_observations.csv"),
     error = function(e) tibble()
   )
+
   use_demo <- nrow(live) == 0
   data <- if (use_demo) {
     read_csv_source("", "data/demo_observations.csv", cache_bust = FALSE)
   } else {
     live
   }
+
   result <- standardize_observations(data)
   attr(result, "demo_data") <- use_demo
   result
@@ -96,7 +107,6 @@ theme_ice <- bslib::bs_theme(
   base_font = bslib::font_google("Atkinson Hyperlegible")
 )
 
-# One-page public dashboard
 ui <- fluidPage(
   theme = theme_ice,
   tags$head(
@@ -110,36 +120,36 @@ ui <- fluidPage(
       .hero h1 { margin: 0; font-size: 2rem; font-weight: 750; }
       .hero p { margin: 4px 0 0 0; opacity: .9; }
       .updated { text-align: right; font-size: .88rem; opacity: .88; }
+      .top-grid { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(440px, 1.2fr);
+                  gap: 18px; align-items: stretch; margin-bottom: 18px; }
       .dashboard-card { background: white; border-radius: 13px; padding: 18px 20px;
-                        box-shadow: 0 3px 15px rgba(23,50,77,.08); margin-bottom: 18px; }
+                        box-shadow: 0 3px 15px rgba(23,50,77,.08); }
       .dashboard-card h2 { font-size: 1.25rem; margin: 0 0 12px 0; font-weight: 720; }
-      .value-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 8px 0; }
-      .value-pill { background: #edf6f8; border-radius: 10px; padding: 8px 12px; min-width: 150px; }
-      .value-label { color: #62798a; font-size: .76rem; text-transform: uppercase;
-                     letter-spacing: .035em; }
-      .value-number { font-size: 1.18rem; font-weight: 720; color: #17324d; }
-      .lower-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr);
-                    gap: 18px; align-items: start; }
-      .lower-grid .dashboard-card { margin-bottom: 0; }
-      .alpha-wrap { background: #edf6f8; border-radius: 10px; padding: 12px 15px 5px 15px;
-                    margin-bottom: 8px; }
-      .alpha-note { color: #62798a; font-size: .84rem; margin-top: -5px; }
-      .ice-result { color: #17324d; font-size: 1.55rem; font-weight: 760; margin-bottom: 5px; }
-      .camera-main { display: block; width: 100%; max-height: 515px; object-fit: contain;
+      .thickness-card { display: flex; flex-direction: column; min-height: 390px; }
+      .thickness-center { flex: 1; display: flex; flex-direction: column;
+                          justify-content: center; align-items: center; text-align: center; }
+      .ice-number { color: #17324d; font-size: clamp(4rem, 9vw, 7.5rem);
+                    font-weight: 780; line-height: .95; letter-spacing: -.05em; }
+      .ice-unit { color: #287271; font-size: 1.25rem; font-weight: 700; margin-top: 8px; }
+      .ice-method { color: #62798a; font-size: .95rem; max-width: 430px; margin: 18px auto 0 auto; }
+      .ice-detail { color: #62798a; font-size: .82rem; margin-top: 8px; }
+      .camera-main { display: block; width: 100%; height: 315px; object-fit: contain;
                      background: #e5ecef; border-radius: 9px; }
       .camera-caption { color: #62798a; font-size: .86rem; margin: 9px 1px 0 1px; }
+      .chart-card { margin-bottom: 0; }
+      .chart-subtitle { color: #62798a; font-size: .9rem; margin: -5px 0 8px 0; }
       .demo-banner { background: #fff4ce; color: #654f00; border-radius: 9px;
                      padding: 9px 13px; margin-bottom: 16px; }
-      .shiny-input-container { width: 100%; }
       @media (max-width: 900px) {
-        .lower-grid { grid-template-columns: 1fr; }
+        .top-grid { grid-template-columns: 1fr; }
+        .thickness-card { min-height: 310px; }
         .hero-row { align-items: flex-start; flex-direction: column; }
         .updated { text-align: left; }
       }
       @media (max-width: 560px) {
         .container-fluid { padding: 0 12px 24px 12px; }
         .hero { margin-left: -12px; margin-right: -12px; padding: 18px; }
-        .value-pill { flex: 1 1 100%; }
+        .camera-main { height: 260px; }
       }
     "))
   ),
@@ -153,43 +163,24 @@ ui <- fluidPage(
   ),
   uiOutput("data_mode_banner"),
   div(
-    class = "dashboard-card",
-    h2("Water temperatures"),
-    uiOutput("temperature_values"),
-    plotOutput("temperature_plot", height = "330px")
-  ),
-  div(
-    class = "dashboard-card",
-    h2("Water depth"),
-    uiOutput("depth_value"),
-    plotOutput("depth_plot", height = "260px")
-  ),
-  div(
-    class = "lower-grid",
+    class = "top-grid",
     div(
-      class = "dashboard-card",
+      class = "dashboard-card thickness-card",
       h2("Calculated ice thickness"),
-      div(
-        class = "alpha-wrap",
-        sliderInput(
-          "alpha",
-          HTML("Ice-growth coefficient (&alpha;)"),
-          min = 0.50,
-          max = 3.00,
-          value = DEFAULT_ALPHA,
-          step = 0.05
-        ),
-        p(class = "alpha-note", "Move the slider and compare the estimate with ice measured at the site.")
-      ),
-      uiOutput("ice_result"),
-      plotOutput("ice_plot", height = "330px")
+      uiOutput("ice_summary")
     ),
     div(
       class = "dashboard-card",
-      h2("Dot Lake camera"),
+      h2("Latest site photo"),
       uiOutput("latest_camera_image"),
       uiOutput("latest_camera_details")
     )
+  ),
+  div(
+    class = "dashboard-card chart-card",
+    h2("Temperature and calculated ice thickness"),
+    p(class = "chart-subtitle", "Hourly temperature observations and calculated daily ice thickness since September 1."),
+    plotOutput("combined_plot", height = "560px")
   )
 )
 
@@ -221,6 +212,18 @@ server <- function(input, output, session) {
     selected
   })
 
+  season_start <- reactive({
+    latest_local_date <- as.Date(
+      with_tz(max(observations()$timestamp_utc, na.rm = TRUE), site_timezone())
+    )
+    season_year <- if (month(latest_local_date) >= 9) {
+      year(latest_local_date)
+    } else {
+      year(latest_local_date) - 1
+    }
+    as.Date(sprintf("%d-09-01", season_year))
+  })
+
   output$site_name <- renderText(active_site()$site_name[[1]])
 
   output$last_updated <- renderUI({
@@ -239,135 +242,151 @@ server <- function(input, output, session) {
   })
 
   temperature_data <- reactive({
+    start_time <- as.POSIXct(season_start(), tz = site_timezone())
+
     observations() %>%
-      filter(sensor_sn %in% c("22578302-3", "22585844-1", "22585845-1")) %>%
+      filter(sensor_sn %in% TEMPERATURE_SENSOR_SNS) %>%
       mutate(
         local_time = with_tz(timestamp_utc, site_timezone()),
         temp_c = to_celsius(value, unit),
+        channel = case_when(
+          sensor_sn == "22578302-3" ~ "Bed water temperature",
+          sensor_sn == "22585844-1" ~ "Ice surface temperature A",
+          sensor_sn == "22585845-1" ~ "Ice surface temperature B",
+          TRUE ~ display_name
+        ),
         channel = factor(
-          display_name,
+          channel,
           levels = c(
-            "Bed temperature (depth PT)",
-            "Temperature probe A (22585844)",
-            "Temperature probe B (22585845)"
+            "Bed water temperature",
+            "Ice surface temperature A",
+            "Ice surface temperature B"
           )
         )
       ) %>%
-      filter(!is.na(channel))
+      filter(local_time >= start_time, !is.na(channel))
   })
 
-  output$temperature_values <- renderUI({
-    latest <- temperature_data() %>%
-      group_by(channel) %>%
-      slice_max(timestamp_utc, n = 1, with_ties = FALSE) %>%
-      ungroup()
-    div(
-      class = "value-row",
-      lapply(seq_len(nrow(latest)), function(i) {
-        div(
-          class = "value-pill",
-          div(class = "value-label", as.character(latest$channel[[i]])),
-          div(class = "value-number", paste0(number(latest$temp_c[[i]], accuracy = 0.1), " °C"))
-        )
-      })
-    )
-  })
-
-  output$temperature_plot <- renderPlot({
-    validate(need(nrow(temperature_data()) > 0, "No temperature data are available."))
-    ggplot(temperature_data(), aes(local_time, temp_c, color = channel)) +
-      geom_hline(yintercept = 0, color = "#9aabb5", linetype = "dashed") +
-      geom_line(linewidth = .85, na.rm = TRUE) +
-      scale_color_manual(
-        values = c("#334e68", "#168aad", "#db7c26"),
-        labels = c("Bed temperature", "Probe A", "Probe B"),
-        drop = FALSE
-      ) +
-      labs(x = NULL, y = "Temperature (°C)", color = NULL) +
-      theme_minimal(base_size = 12) +
-      theme(legend.position = "top", legend.justification = "left", panel.grid.minor = element_blank())
-  })
-
-  depth_data <- reactive({
-    observations() %>%
-      filter(sensor_sn == "22578302-1") %>%
-      mutate(local_time = with_tz(timestamp_utc, site_timezone()))
-  })
-
-  output$depth_value <- renderUI({
-    latest <- tail(depth_data(), 1)
-    value <- if (nrow(latest) == 0) "—" else paste0(number(latest$value, accuracy = .001), " m")
-    div(
-      class = "value-row",
-      div(class = "value-pill", div(class = "value-label", "Latest depth"), div(class = "value-number", value))
-    )
-  })
-
-  output$depth_plot <- renderPlot({
-    validate(need(nrow(depth_data()) > 0, "No water-depth data are available."))
-    ggplot(depth_data(), aes(local_time, value)) +
-      geom_area(fill = "#83c5d6", alpha = .35) +
-      geom_line(color = "#1f7898", linewidth = .9) +
-      labs(x = NULL, y = "Water depth (m)") +
-      theme_minimal(base_size = 12) +
-      theme(panel.grid.minor = element_blank())
-  })
-
-  daily_model_temperature <- reactive({
-    observations() %>%
-      filter(sensor_sn == MODEL_SENSOR_SN) %>%
-      mutate(
-        local_time = with_tz(timestamp_utc, site_timezone()),
-        date = as.Date(local_time),
-        temp_c = to_celsius(value, unit)
-      ) %>%
+  daily_surface_temperature <- reactive({
+    temperature_data() %>%
+      filter(sensor_sn %in% SURFACE_SENSOR_SNS) %>%
+      mutate(date = as.Date(local_time)) %>%
+      group_by(date, sensor_sn) %>%
+      summarise(sensor_daily_mean_c = mean(temp_c, na.rm = TRUE), .groups = "drop") %>%
       group_by(date) %>%
-      summarise(temp_c = mean(temp_c, na.rm = TRUE), .groups = "drop") %>%
+      summarise(surface_daily_mean_c = mean(sensor_daily_mean_c, na.rm = TRUE), .groups = "drop") %>%
       arrange(date)
   })
 
-  model_start_date <- reactive({
-    configured <- active_site()$default_model_start[[1]]
-    environment <- Sys.getenv("MODEL_START_DATE", "")
-    requested <- if (!is.na(configured) && nzchar(configured)) configured else environment
-    if (nzchar(requested)) as.Date(requested) else min(daily_model_temperature()$date)
-  })
-
   model_data <- reactive({
-    req(input$alpha)
-    validate(need(nrow(daily_model_temperature()) > 0, "Probe A data are unavailable."))
-    daily_model_temperature() %>%
+    validate(need(nrow(daily_surface_temperature()) > 0, "Surface temperature data are unavailable."))
+
+    daily_surface_temperature() %>%
       mutate(
-        daily_fdd = if_else(date >= model_start_date(), pmax(0, -temp_c), 0),
+        daily_fdd = pmax(0, -surface_daily_mean_c),
         cumulative_fdd = cumsum(daily_fdd),
-        modeled_thickness_cm = input$alpha * sqrt(cumulative_fdd)
+        calculated_thickness_cm = MODEL_ALPHA * sqrt(cumulative_fdd),
+        plot_time = as.POSIXct(date, tz = site_timezone()) + hours(12)
       )
   })
 
-  output$ice_result <- renderUI({
+  output$ice_summary <- renderUI({
     current <- tail(model_data(), 1)
-    tagList(
-      div(
-        class = "ice-result",
-        paste0(number(current$modeled_thickness_cm, accuracy = .1), " cm calculated thickness")
-      ),
+    div(
+      class = "thickness-center",
+      div(class = "ice-number", number(current$calculated_thickness_cm, accuracy = 0.1)),
+      div(class = "ice-unit", "centimeters"),
       p(
-        class = "alpha-note",
-        "Based on Probe A and ",
-        number(current$cumulative_fdd, accuracy = .1),
-        " accumulated freezing degree days."
+        class = "ice-method",
+        HTML("Calculated with &alpha; = 3.5 using the daily average of both ice-surface temperature sensors.")
+      ),
+      div(
+        class = "ice-detail",
+        number(current$cumulative_fdd, accuracy = 0.1),
+        " accumulated freezing degree days through ",
+        format(current$date, "%B %d, %Y")
       )
     )
   })
 
-  output$ice_plot <- renderPlot({
-    ggplot(model_data(), aes(date, modeled_thickness_cm)) +
-      geom_area(fill = "#a8dadc", alpha = .55) +
-      geom_line(color = "#287271", linewidth = 1.05) +
-      labs(x = NULL, y = "Calculated ice thickness (cm)") +
-      scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, .08))) +
+  output$combined_plot <- renderPlot({
+    temperatures <- temperature_data()
+    ice <- model_data()
+    validate(need(nrow(temperatures) > 0, "No temperature data are available after September 1."))
+
+    temperature_upper <- max(temperatures$temp_c, na.rm = TRUE)
+    temperature_upper <- max(5, temperature_upper)
+    ice_upper <- max(ice$calculated_thickness_cm, na.rm = TRUE)
+    ice_scale <- if (is.finite(ice_upper) && ice_upper > 0) {
+      ice_upper / temperature_upper
+    } else {
+      1
+    }
+    ice_breaks <- if (is.finite(ice_upper) && ice_upper > 0) {
+      pretty(c(0, ice_upper), n = 5)
+    } else {
+      0
+    }
+    ice_breaks <- ice_breaks[ice_breaks >= 0]
+    plot_end <- max(c(temperatures$local_time, ice$plot_time), na.rm = TRUE)
+
+    ggplot(temperatures, aes(local_time, temp_c, color = channel)) +
+      geom_hline(yintercept = 0, color = "#9aabb5", linetype = "dotted", linewidth = .6) +
+      geom_line(linewidth = .72, alpha = .9, na.rm = TRUE) +
+      geom_line(
+        data = ice,
+        aes(
+          x = plot_time,
+          y = calculated_thickness_cm / ice_scale,
+          color = "Calculated ice thickness"
+        ),
+        inherit.aes = FALSE,
+        linewidth = 1.35,
+        linetype = "longdash",
+        na.rm = TRUE
+      ) +
+      scale_color_manual(
+        values = c(
+          "Bed water temperature" = "#334e68",
+          "Ice surface temperature A" = "#168aad",
+          "Ice surface temperature B" = "#db7c26",
+          "Calculated ice thickness" = "#7b2cbf"
+        ),
+        breaks = c(
+          "Bed water temperature",
+          "Ice surface temperature A",
+          "Ice surface temperature B",
+          "Calculated ice thickness"
+        ),
+        drop = FALSE
+      ) +
+      scale_x_datetime(
+        date_breaks = "2 weeks",
+        date_labels = "%b %d",
+        limits = c(
+          as.POSIXct(season_start(), tz = site_timezone()),
+          plot_end
+        ),
+        expand = expansion(mult = c(0, .01))
+      ) +
+      scale_y_continuous(
+        name = "Temperature (°C)",
+        sec.axis = sec_axis(
+          ~ . * ice_scale,
+          name = "Calculated ice thickness (cm)",
+          breaks = ice_breaks
+        )
+      ) +
+      labs(x = NULL, color = NULL) +
       theme_minimal(base_size = 12) +
-      theme(panel.grid.minor = element_blank())
+      theme(
+        legend.position = "top",
+        legend.justification = "left",
+        legend.box = "vertical",
+        panel.grid.minor = element_blank(),
+        axis.title.y.left = element_text(color = "#334e68", face = "bold"),
+        axis.title.y.right = element_text(color = "#7b2cbf", face = "bold")
+      )
   })
 
   camera_manifest <- reactivePoll(
@@ -397,7 +416,11 @@ server <- function(input, output, session) {
     tags$a(
       href = manifest$image_url[[1]],
       target = "_blank",
-      tags$img(src = manifest$image_url[[1]], class = "camera-main", alt = "Latest Dot Lake camera image")
+      tags$img(
+        src = manifest$image_url[[1]],
+        class = "camera-main",
+        alt = "Latest Dot Lake camera image"
+      )
     )
   })
 
@@ -409,8 +432,9 @@ server <- function(input, output, session) {
     div(
       class = "camera-caption",
       strong(format(local_time, "%B %d, %Y at %I:%M %p")),
-      if (!is.na(latest$caption[[1]]) && nzchar(latest$caption[[1]]))
+      if (!is.na(latest$caption[[1]]) && nzchar(latest$caption[[1]])) {
         tagList(br(), latest$caption[[1]])
+      }
     )
   })
 }

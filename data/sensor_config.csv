@@ -1,9 +1,9 @@
 site_id,sensor_sn,sensor_measurement_type,display_name,model_candidate,display_order
 dot-lake,22578302-1,Sensor Depth,Sensor depth,FALSE,1
 dot-lake,22578302-2,Diff Pressure,Differential pressure,FALSE,2
-dot-lake,22578302-3,Water Temperature,Bed temperature (depth PT),FALSE,3
-dot-lake,22585844-1,Temperature,Temperature probe A (22585844),TRUE,4
-dot-lake,22585845-1,Temperature,Temperature probe B (22585845),TRUE,5
+dot-lake,22578302-3,Water Temperature,Bed water temperature (depth PT),FALSE,3
+dot-lake,22585844-1,Temperature,Ice surface temperature A,TRUE,4
+dot-lake,22585845-1,Temperature,Ice surface temperature B,TRUE,5
 dot-lake,22578302-4,Barometric Pressure,Barometric pressure,FALSE,6
 dot-lake,22578302-B,Battery Level,Depth PT battery,FALSE,7
 dot-lake,22585844-B,Battery Level,Probe A battery,FALSE,8

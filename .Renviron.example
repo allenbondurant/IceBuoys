@@ -3,9 +3,8 @@ LICOR_API_TOKEN=replace_with_your_private_token
 LICOR_LOGGER_SN=22188604
 LICOR_INITIAL_DAYS=180
 
-# Shiny application settings
+# Shiny application setting
 DEFAULT_SITE_ID=dot-lake
-MODEL_START_DATE=2026-09-15
 
 # Use raw GitHub URLs after the repository is created.
 OBSERVATIONS_CSV_URL=

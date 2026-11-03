@@ -118,6 +118,18 @@ def merge_records(records: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     )
 
 
+def parse_logger_serials(value: str) -> list[str]:
+    """Return unique logger serials from a comma-separated setting."""
+    serials: list[str] = []
+    for item in value.split(","):
+        serial = item.strip()
+        if serial and serial not in serials:
+            serials.append(serial)
+    if not serials:
+        raise ValueError("At least one LI-COR logger serial number is required")
+    return serials
+
+
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -131,7 +143,11 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="data/licor_observations.csv")
-    parser.add_argument("--logger", default=os.getenv("LICOR_LOGGER_SN", DEFAULT_LOGGER))
+    parser.add_argument(
+        "--logger",
+        default=os.getenv("LICOR_LOGGER_SN", DEFAULT_LOGGER),
+        help="One logger serial number or a comma-separated list of serial numbers.",
+    )
     parser.add_argument(
         "--initial-days",
         type=int,
@@ -148,23 +164,33 @@ def main() -> int:
     output = Path(args.output)
     existing = read_existing(output)
     now = datetime.now(timezone.utc).replace(microsecond=0)
-
-    timestamps = []
-    for row in existing:
-        try:
-            timestamps.append(parse_timestamp(row["timestamp_utc"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-
-    start = max(timestamps) - timedelta(days=2) if timestamps else now - timedelta(days=args.initial_days)
+    logger_serials = parse_logger_serials(args.logger)
 
     downloaded: list[dict[str, str]] = []
     with requests.Session() as session:
-        for window_start, window_end in windows(start, now):
-            print(f"Fetching {api_timestamp(window_start)} through {api_timestamp(window_end)}")
-            downloaded.extend(
-                fetch_window(session, token, args.logger, window_start, window_end)
+        for logger_sn in logger_serials:
+            timestamps = []
+            for row in existing:
+                if row.get("logger_sn") != logger_sn:
+                    continue
+                try:
+                    timestamps.append(parse_timestamp(row["timestamp_utc"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+            start = (
+                max(timestamps) - timedelta(days=2)
+                if timestamps
+                else now - timedelta(days=args.initial_days)
             )
+            for window_start, window_end in windows(start, now):
+                print(
+                    f"Fetching logger {logger_sn}: "
+                    f"{api_timestamp(window_start)} through {api_timestamp(window_end)}"
+                )
+                downloaded.extend(
+                    fetch_window(session, token, logger_sn, window_start, window_end)
+                )
 
     merged = merge_records([*existing, *downloaded])
     write_csv(output, merged)

@@ -9,16 +9,14 @@ library(scales)
 # Backend configuration
 DEFAULT_SITE_ID <- Sys.getenv("DEFAULT_SITE_ID", "dot-lake")
 MODEL_ALPHA <- 3.5
-SURFACE_SENSOR_SNS <- c("22585844-1", "22585845-1")
-TEMPERATURE_SENSOR_SNS <- c("22578302-3", SURFACE_SENSOR_SNS)
 
 OBSERVATIONS_URL <- Sys.getenv(
   "OBSERVATIONS_CSV_URL",
   "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/licor_observations.csv"
 )
-CAMERA_MANIFEST_URL <- Sys.getenv(
-  "CAMERA_MANIFEST_URL",
-  "https://raw.githubusercontent.com/allenbondurant/IceBuoys/main/data/camera_manifest.csv"
+FIELD_CAM_BASE_URL <- Sys.getenv(
+  "FIELD_CAM_BASE_URL",
+  "https://pub-6bd68a1316f24c5c88de17eef39f5a30.r2.dev"
 )
 
 site_config <- suppressMessages(
@@ -31,7 +29,12 @@ site_config <- suppressMessages(
 
 sensor_config <- suppressMessages(
   readr::read_csv("data/sensor_config.csv", show_col_types = FALSE)
-)
+) %>%
+  mutate(
+    site_id = as.character(site_id),
+    sensor_sn = as.character(sensor_sn),
+    model_candidate = tolower(as.character(model_candidate)) %in% c("true", "1", "yes")
+  )
 
 read_csv_source <- function(remote_url, local_path, cache_bust = TRUE) {
   source <- local_path
@@ -46,6 +49,28 @@ read_csv_source <- function(remote_url, local_path, cache_bust = TRUE) {
 
   suppressMessages(
     readr::read_csv(source, show_col_types = FALSE, na = c("", "NA", "null"))
+  )
+}
+
+read_camera_snapshot <- function(camera_slug) {
+  if (is.na(camera_slug) || !nzchar(camera_slug)) return(tibble())
+
+  manifest_url <- paste0(
+    sub("/$", "", FIELD_CAM_BASE_URL),
+    "/manifests/cameras/", camera_slug,
+    "/latest.json?refresh=", floor(as.numeric(Sys.time()) / 300)
+  )
+  manifest <- jsonlite::fromJSON(manifest_url, simplifyVector = FALSE)
+  item <- manifest$featured
+  if (is.null(item) || is.null(item$objects$web$url)) return(tibble())
+
+  tibble(
+    image_id = as.character(item$id),
+    timestamp_utc = lubridate::ymd_hms(item$captured_at_utc, tz = "UTC", quiet = TRUE),
+    image_url = as.character(item$objects$web$url),
+    original_url = as.character(item$objects$original$url),
+    brightness = as.numeric(item$brightness),
+    usable_daylight = isTRUE(item$usable_daylight)
   )
 }
 
@@ -110,7 +135,7 @@ theme_ice <- bslib::bs_theme(
 ui <- fluidPage(
   theme = theme_ice,
   tags$head(
-    tags$title("IceBuoys — Dot Lake"),
+    tags$title("IceBuoys"),
     tags$style(HTML("
       body { background: #eef4f6; }
       .container-fluid { max-width: 1380px; padding: 0 24px 32px 24px; }
@@ -119,6 +144,11 @@ ui <- fluidPage(
       .hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
       .hero h1 { margin: 0; font-size: 2rem; font-weight: 750; }
       .hero p { margin: 4px 0 0 0; opacity: .9; }
+      .hero-controls { display: flex; align-items: flex-end; justify-content: flex-end; gap: 18px; }
+      .site-picker .form-group { margin-bottom: 0; }
+      .site-picker label { display: block; color: white; font-size: .8rem; opacity: .88; margin-bottom: 3px; }
+      .site-picker .selectize-control { margin-bottom: 0; }
+      .site-picker .selectize-input { min-height: 36px; border: 0; box-shadow: none; }
       .updated { text-align: right; font-size: .88rem; opacity: .88; }
       .top-grid { display: grid; grid-template-columns: minmax(320px, .8fr) minmax(440px, 1.2fr);
                   gap: 18px; align-items: stretch; margin-bottom: 18px; }
@@ -144,6 +174,7 @@ ui <- fluidPage(
         .top-grid { grid-template-columns: 1fr; }
         .thickness-card { min-height: 310px; }
         .hero-row { align-items: flex-start; flex-direction: column; }
+        .hero-controls { width: 100%; justify-content: space-between; }
         .updated { text-align: left; }
       }
       @media (max-width: 560px) {
@@ -158,7 +189,20 @@ ui <- fluidPage(
     div(
       class = "hero-row",
       div(h1("IceBuoys"), p(textOutput("site_name", inline = TRUE))),
-      div(class = "updated", uiOutput("last_updated"))
+      div(
+        class = "hero-controls",
+        div(
+          class = "site-picker",
+          selectInput(
+            "site_id",
+            "Monitoring site",
+            choices = stats::setNames(site_config$site_id, site_config$site_name),
+            selected = DEFAULT_SITE_ID,
+            width = "220px"
+          )
+        ),
+        div(class = "updated", uiOutput("last_updated"))
+      )
     )
   ),
   uiOutput("data_mode_banner"),
@@ -193,9 +237,17 @@ server <- function(input, output, session) {
   )
 
   active_site <- reactive({
-    selected <- site_config %>% filter(site_id == DEFAULT_SITE_ID)
-    validate(need(nrow(selected) == 1, "The default site is not configured."))
+    selected_id <- input$site_id
+    if (is.null(selected_id) || !nzchar(selected_id)) selected_id <- DEFAULT_SITE_ID
+    selected <- site_config %>% filter(site_id == selected_id)
+    validate(need(nrow(selected) == 1, "The selected site is not configured."))
     selected
+  })
+
+  site_sensor_config <- reactive({
+    sensor_config %>%
+      filter(site_id == active_site()$site_id[[1]]) %>%
+      arrange(display_order)
   })
 
   site_timezone <- reactive({
@@ -243,33 +295,27 @@ server <- function(input, output, session) {
 
   temperature_data <- reactive({
     start_time <- as.POSIXct(season_start(), tz = site_timezone())
+    configured <- site_sensor_config() %>%
+      filter(grepl("temperature", sensor_measurement_type, ignore.case = TRUE))
+    channel_levels <- configured$display_name
 
     observations() %>%
-      filter(sensor_sn %in% TEMPERATURE_SENSOR_SNS) %>%
+      filter(sensor_sn %in% configured$sensor_sn) %>%
       mutate(
         local_time = with_tz(timestamp_utc, site_timezone()),
         temp_c = to_celsius(value, unit),
-        channel = case_when(
-          sensor_sn == "22578302-3" ~ "Bed water temperature",
-          sensor_sn == "22585844-1" ~ "Ice surface temperature A",
-          sensor_sn == "22585845-1" ~ "Ice surface temperature B",
-          TRUE ~ display_name
-        ),
-        channel = factor(
-          channel,
-          levels = c(
-            "Bed water temperature",
-            "Ice surface temperature A",
-            "Ice surface temperature B"
-          )
-        )
+        channel = factor(display_name, levels = channel_levels)
       ) %>%
       filter(local_time >= start_time, !is.na(channel))
   })
 
   daily_surface_temperature <- reactive({
+    surface_sensor_sns <- site_sensor_config() %>%
+      filter(model_candidate) %>%
+      pull(sensor_sn)
+
     temperature_data() %>%
-      filter(sensor_sn %in% SURFACE_SENSOR_SNS) %>%
+      filter(sensor_sn %in% surface_sensor_sns) %>%
       mutate(date = as.Date(local_time)) %>%
       group_by(date, sensor_sn) %>%
       summarise(sensor_daily_mean_c = mean(temp_c, na.rm = TRUE), .groups = "drop") %>%
@@ -292,13 +338,21 @@ server <- function(input, output, session) {
 
   output$ice_summary <- renderUI({
     current <- tail(model_data(), 1)
+    surface_count <- site_sensor_config() %>%
+      filter(model_candidate) %>%
+      summarise(count = n_distinct(sensor_sn)) %>%
+      pull(count)
     div(
       class = "thickness-center",
       div(class = "ice-number", number(current$calculated_thickness_cm, accuracy = 0.1)),
       div(class = "ice-unit", "centimeters"),
       p(
         class = "ice-method",
-        HTML("Calculated with &alpha; = 3.5 using the daily average of both ice-surface temperature sensors.")
+        HTML(sprintf(
+          "Calculated with &alpha; = 3.5 using the daily average of %d ice-surface temperature sensor%s.",
+          surface_count,
+          if (surface_count == 1) "" else "s"
+        ))
       ),
       div(
         class = "ice-detail",
@@ -329,6 +383,13 @@ server <- function(input, output, session) {
     }
     ice_breaks <- ice_breaks[ice_breaks >= 0]
     plot_end <- max(c(temperatures$local_time, ice$plot_time), na.rm = TRUE)
+    sensor_channels <- levels(droplevels(temperatures$channel))
+    sensor_palette <- c("#334e68", "#168aad", "#db7c26", "#2a9d8f", "#d1495b", "#5c4d7d")
+    sensor_colors <- stats::setNames(
+      rep(sensor_palette, length.out = length(sensor_channels)),
+      sensor_channels
+    )
+    series_colors <- c(sensor_colors, "Calculated ice thickness" = "#7b2cbf")
 
     ggplot(temperatures, aes(local_time, temp_c, color = channel)) +
       geom_hline(yintercept = 0, color = "#9aabb5", linetype = "dotted", linewidth = .6) +
@@ -346,18 +407,8 @@ server <- function(input, output, session) {
         na.rm = TRUE
       ) +
       scale_color_manual(
-        values = c(
-          "Bed water temperature" = "#334e68",
-          "Ice surface temperature A" = "#168aad",
-          "Ice surface temperature B" = "#db7c26",
-          "Calculated ice thickness" = "#7b2cbf"
-        ),
-        breaks = c(
-          "Bed water temperature",
-          "Ice surface temperature A",
-          "Ice surface temperature B",
-          "Calculated ice thickness"
-        ),
+        values = series_colors,
+        breaks = c(sensor_channels, "Calculated ice thickness"),
         drop = FALSE
       ) +
       scale_x_datetime(
@@ -389,52 +440,35 @@ server <- function(input, output, session) {
       )
   })
 
-  camera_manifest <- reactivePoll(
-    intervalMillis = 300000,
-    session = session,
-    checkFunc = function() floor(as.numeric(Sys.time()) / 300),
-    valueFunc = function() {
-      tryCatch(
-        {
-          manifest <- read_csv_source(CAMERA_MANIFEST_URL, "data/camera_manifest.csv")
-          if (!"site_id" %in% names(manifest)) manifest$site_id <- DEFAULT_SITE_ID
-          manifest %>%
-            mutate(
-              site_id = as.character(site_id),
-              timestamp_utc = ymd_hms(timestamp_utc, tz = "UTC", quiet = TRUE)
-            ) %>%
-            arrange(desc(timestamp_utc))
-        },
-        error = function(e) tibble()
-      )
-    }
-  )
+  camera_snapshot <- reactive({
+    invalidateLater(300000, session)
+    camera_slug <- active_site()$camera_slug[[1]]
+    tryCatch(read_camera_snapshot(camera_slug), error = function(e) tibble())
+  })
 
   output$latest_camera_image <- renderUI({
-    manifest <- camera_manifest() %>% filter(site_id == DEFAULT_SITE_ID)
-    if (nrow(manifest) == 0) return(p("No camera image is available yet."))
+    snapshot <- camera_snapshot()
+    if (nrow(snapshot) == 0) return(p("No camera image is available yet."))
     tags$a(
-      href = manifest$image_url[[1]],
+      href = snapshot$original_url[[1]],
       target = "_blank",
       tags$img(
-        src = manifest$image_url[[1]],
+        src = snapshot$image_url[[1]],
         class = "camera-main",
-        alt = "Latest Dot Lake camera image"
+        alt = paste("Latest", active_site()$site_name[[1]], "camera image")
       )
     )
   })
 
   output$latest_camera_details <- renderUI({
-    manifest <- camera_manifest() %>% filter(site_id == DEFAULT_SITE_ID)
-    if (nrow(manifest) == 0) return(NULL)
-    latest <- manifest[1, ]
-    local_time <- with_tz(latest$timestamp_utc, site_timezone())
+    snapshot <- camera_snapshot()
+    if (nrow(snapshot) == 0) return(NULL)
+    local_time <- with_tz(snapshot$timestamp_utc[[1]], site_timezone())
     div(
       class = "camera-caption",
       strong(format(local_time, "%B %d, %Y at %I:%M %p")),
-      if (!is.na(latest$caption[[1]]) && nzchar(latest$caption[[1]])) {
-        tagList(br(), latest$caption[[1]])
-      }
+      br(),
+      "Newest usable daylight image from the FieldCam R2 archive."
     )
   })
 }

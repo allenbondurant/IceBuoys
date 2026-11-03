@@ -1,4 +1,4 @@
-required <- c("shiny", "bslib", "dplyr", "readr", "ggplot2", "lubridate", "scales")
+required <- c("shiny", "bslib", "dplyr", "readr", "ggplot2", "lubridate", "scales", "jsonlite")
 missing <- setdiff(required, rownames(installed.packages()))
 if (length(missing) > 0) {
   install.packages(missing, repos = "https://cloud.r-project.org")

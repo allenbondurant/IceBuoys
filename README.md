@@ -1,15 +1,16 @@
 # IceBuoys
 
-An expandable R Shiny dashboard for student river-ice monitoring. **Dot Lake** is the first site, using LI-COR Cloud observations from Onset R2x100 logger **22188604**, an accumulated freezing-degree-day ice calculation, and SpyPoint imagery.
+An expandable R Shiny dashboard for student river-ice monitoring. The dashboard combines LI-COR Cloud observations, an accumulated freezing-degree-day ice calculation, and SpyPoint imagery archived in Cloudflare R2. Users choose the monitoring site from the header.
 
 ## What the dashboard shows
 
 - Downloads LI-COR observations with a private bearer token.
 - Stores tidy, deduplicated observations in `data/licor_observations.csv`.
 - Updates the data automatically through GitHub Actions.
+- Switches the complete dashboard between configured monitoring sites.
 - Displays calculated ice thickness using a fixed α of 3.5 beside the latest SpyPoint photograph.
-- Calculates a daily mean for each ice-surface sensor and then averages the two sensors equally.
-- Plots all three hourly temperature channels with calculated daily ice thickness on a secondary axis.
+- Calculates a daily mean for each configured ice-surface sensor and then averages those sensors equally.
+- Plots each site's configured temperature channels with calculated daily ice thickness on a secondary axis.
 - Starts each displayed ice season on September 1.
 - Keeps sensor mappings and future-site configuration out of the public interface.
 
@@ -35,7 +36,7 @@ If no live observations exist, the app displays clearly labeled demonstration se
 
 ## LI-COR data update on GitHub
 
-Create a repository secret named `LICOR_API_TOKEN`. The included workflow runs every three hours and can also be run manually. It requests only logger `22188604`, merges new observations with the existing CSV, removes duplicates, and commits changes only when the data have changed.
+Create a repository secret named `LICOR_API_TOKEN`. The included workflow runs every three hours and can also be run manually. `LICOR_LOGGER_SN` accepts one serial number or a comma-separated list. The updater fetches each logger separately, merges observations into the existing CSV, removes duplicates, and commits only when the data have changed.
 
 The application reads `data/licor_observations.csv` directly from the public IceBuoys GitHub repository and checks it every five minutes. `OBSERVATIONS_CSV_URL` can still override that address for testing or a future repository move.
 
@@ -59,22 +60,16 @@ Measured ice-thickness points will be added as a separate data layer, most likel
 
 ## Adding another IceBuoys site
 
-Add one row to `data/sites.csv` with a unique site ID, display name, LI-COR logger serial number, timezone, and optional default model start date. Then:
+Add one row to `data/sites.csv` with a unique site ID, display name, LI-COR logger serial number, timezone, optional default model start date, and FieldCam camera slug. Then:
 
 1. Add the site's sensor mappings to `data/sensor_config.csv`.
 2. Add its logger serial number to `LICOR_LOGGER_SN` in the workflow, comma-separated from the existing serial number.
-3. Include the same `site_id` in ice measurements and the camera manifest.
+3. Add the SpyPoint camera ID to the `icebuoys` project in the FieldCam Cloud camera registry, using a camera name that produces the same slug as `camera_slug`.
 
 No app code needs to be duplicated for another site.
 
 ## SpyPoint imagery
 
-The existing SpyPoint downloader can remain responsible for retrieving photographs. Run the included synchronization step afterward:
+The Shiny app reads each site's `featured` image directly from its public FieldCam Cloud R2 manifest. The default base URL is the pilot's `r2.dev` address and can be overridden with `FIELD_CAM_BASE_URL` when a custom domain is introduced.
 
-```text
-python scripts/sync_spypoint_folder.py "C:/Users/Allen/Documents/SpypointDownloads/CAMERA_FOLDER" --site-id dot-lake
-```
-
-The script retains the newest 60 images by default, resizes them, removes EXIF metadata, converts embedded Alaska-local camera times to UTC, and writes `data/camera_manifest.csv`. When the image files are hosted in GitHub, set `CAMERA_RAW_BASE_URL` before running the script so the manifest contains public raw-image URLs.
-
-For the Dot Lake Windows computer, `scripts/update_dot_lake_camera.ps1` performs the complete camera update: it synchronizes the newest 12 images from the configured SpyPoint folder, commits the image and manifest changes, integrates any intervening LI-COR data commit, and pushes to GitHub. Add it as a second action in the existing SpyPoint Task Scheduler task so it runs after the downloader finishes.
+The legacy Windows downloader, GitHub camera manifest, and repository image copies are no longer inputs to the Shiny display. They are intentionally left intact during the cutover and can be retired separately after the R2-backed app has been verified.
